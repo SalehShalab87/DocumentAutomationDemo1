@@ -176,6 +176,100 @@ namespace DocumentAutomationDemo
             SafeConsoleClear();
             Console.WriteLine("=== Generate Document ===\n");
 
+            // First show available templates for reference
+            var templates = _templateService.GetAllTemplates();
+            if (templates.Count > 0)
+            {
+                Console.WriteLine("Available templates for reference:");
+                foreach (var template in templates)
+                {
+                    Console.WriteLine($"- {template.Name} (ID: {template.Id})");
+                    Console.WriteLine($"  Placeholders: {string.Join(", ", template.Placeholders)}");
+                }
+                Console.WriteLine();
+            }
+
+            Console.Write("Enter path to values JSON file (or press Enter for manual input): ");
+            string jsonPath = Console.ReadLine() ?? "";
+
+            if (string.IsNullOrWhiteSpace(jsonPath))
+            {
+                // Fall back to manual input if no JSON file specified
+                GenerateDocumentManual();
+                return;
+            }
+
+            if (!File.Exists(jsonPath))
+            {
+                Console.WriteLine("❌ JSON file not found.");
+                Console.WriteLine("\nExample JSON format:");
+                Console.WriteLine(@"{
+    ""templateId"": ""template_1"",
+    ""values"": {
+        ""ICS_CustomerName"": ""John Doe"",
+        ""ICS_QuotationNumber"": ""Q12345""
+    },
+    ""exportFormat"": ""Original""
+}");
+                Console.ReadKey();
+                return;
+            }
+
+            try
+            {
+                // Read and parse JSON file
+                string jsonContent = File.ReadAllText(jsonPath);
+                var documentValues = System.Text.Json.JsonSerializer.Deserialize<DocumentValues>(jsonContent);
+
+                if (documentValues == null)
+                {
+                    Console.WriteLine("❌ Invalid JSON format.");
+                    Console.ReadKey();
+                    return;
+                }
+
+                // Validate template exists
+                var template = _templateService.GetTemplate(documentValues.TemplateId);
+                if (template == null)
+                {
+                    Console.WriteLine($"❌ Template with ID '{documentValues.TemplateId}' not found.");
+                    Console.ReadKey();
+                    return;
+                }
+
+                // Convert dictionary to PlaceholderValues
+                var placeholderValues = documentValues.Values.Select(kv => new PlaceholderValue 
+                { 
+                    Placeholder = kv.Key, 
+                    Value = kv.Value 
+                }).ToList();
+
+                var request = new DocumentGenerationRequest
+                {
+                    TemplateId = documentValues.TemplateId,
+                    PlaceholderValues = placeholderValues,
+                    ExportFormat = documentValues.ExportFormat
+                };
+
+                string outputPath = _documentService.GenerateDocument(request);
+                Console.WriteLine($"\n✅ Document generated successfully!");
+                Console.WriteLine($"Output file: {outputPath}");
+            }
+            catch (System.Text.Json.JsonException ex)
+            {
+                Console.WriteLine($"❌ Error parsing JSON: {ex.Message}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"❌ Error generating document: {ex.Message}");
+            }
+
+            Console.WriteLine("\nPress any key to continue...");
+            Console.ReadKey();
+        }
+
+        static void GenerateDocumentManual()
+        {
             var templates = _templateService.GetAllTemplates();
             if (templates.Count == 0)
             {
@@ -258,6 +352,26 @@ namespace DocumentAutomationDemo
                 string outputPath = _documentService.GenerateDocument(request);
                 Console.WriteLine($"\n✅ Document generated successfully!");
                 Console.WriteLine($"Output file: {outputPath}");
+
+                // Generate example JSON for future use
+                var jsonExample = new DocumentValues
+                {
+                    TemplateId = selectedTemplate.Id,
+                    Values = placeholderValues.ToDictionary(pv => pv.Placeholder, pv => pv.Value),
+                    ExportFormat = format
+                };
+
+                string jsonPath = Path.Combine(
+                    Path.GetDirectoryName(outputPath) ?? "",
+                    Path.GetFileNameWithoutExtension(outputPath) + "_values.json"
+                );
+
+                File.WriteAllText(
+                    jsonPath,
+                    System.Text.Json.JsonSerializer.Serialize(jsonExample, new System.Text.Json.JsonSerializerOptions { WriteIndented = true })
+                );
+
+                Console.WriteLine($"JSON template saved to: {jsonPath}");
             }
             catch (Exception ex)
             {

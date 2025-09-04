@@ -1,0 +1,28 @@
+{
+    "templateId": "74cf4b92-d8e0-4789-a9dd-1f0fd3bb082d",
+    "values": {
+        "ICS_CustomerName": "Mahar",
+        "ICS_QuotationNumber": "Q4545451",
+        "ICS_PolicyNumber": "P8454545",
+        "ICS_PolicyStartDate": "2025-09-01",
+        "ICS_PolicyEndDate": "2026-08-31",
+        "ICS_Benefit1_Name": "Hospitalization",
+        "ICS_Benefit1_Coverage": "Full coverage",
+        "ICS_Benefit1_Limit": "$10,000",
+        "ICS_Benefit2_Name": "Outpatient Care",
+        "ICS_Benefit2_Coverage": "Partial coverage",
+        "ICS_Benefit2_Limit": "$15,000",
+        "ICS_Benefit3_Name": "Dental",
+        "ICS_Benefit3_Coverage": "Full coverage",
+        "ICS_Benefit3_Limit": "$8,000",
+        "ICS_Benefit4_Name": "Vision",
+        "ICS_Benefit4_Coverage": "Partial coverage",
+        "ICS_Benefit4_Limit": "$7,500",
+        "ICS_Term1": "Premium must be paid monthly",
+        "ICS_Term2": "Claims must be submitted online",
+        "ICS_Term3": "Coverage excludes pre-existing conditions",
+        "ICS_Term4": "Policy renewal required annually",
+        "GrammarlyDocumentId": ""
+    },
+    "exportFormat": 0
+}

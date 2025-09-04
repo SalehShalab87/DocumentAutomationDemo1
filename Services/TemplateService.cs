@@ -206,32 +206,6 @@ namespace DocumentAutomationDemo.Services
             return properties;
         }
 
-        private List<string> ExtractCustomProperties(WordprocessingDocument doc)
-        {
-            var properties = new List<string>();
-
-            try
-            {
-                // Get custom file properties part
-                var customPropertiesPart = doc.CustomFilePropertiesPart;
-                if (customPropertiesPart?.Properties != null)
-                {
-                    foreach (var prop in customPropertiesPart.Properties.Elements<DocumentFormat.OpenXml.CustomProperties.CustomDocumentProperty>())
-                    {
-                        if (prop.Name?.Value != null)
-                        {
-                            properties.Add(prop.Name.Value);
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Warning: Could not read custom properties: {ex.Message}");
-            }
-
-            return properties;
-        }
 
         public Dictionary<string, string> GetCustomPropertiesWithValues(string templatePath)
         {
