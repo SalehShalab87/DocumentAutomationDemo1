@@ -244,11 +244,23 @@ namespace DocumentAutomationDemo
                     Value = kv.Value 
                 }).ToList();
 
+                // Check if export format is specified in JSON, if not ask user
+                ExportFormat finalExportFormat = documentValues.ExportFormat;
+                if (documentValues.ExportFormat == ExportFormat.Original)
+                {
+                    Console.WriteLine($"\n📄 JSON file doesn't specify export format (or uses Original).");
+                    finalExportFormat = AskForExportFormat();
+                }
+                else
+                {
+                    Console.WriteLine($"📑 Using export format from JSON: {documentValues.ExportFormat}");
+                }
+
                 var request = new DocumentGenerationRequest
                 {
                     TemplateId = documentValues.TemplateId,
                     PlaceholderValues = placeholderValues,
-                    ExportFormat = documentValues.ExportFormat
+                    ExportFormat = finalExportFormat
                 };
 
                 string outputPath = _documentService.GenerateDocument(request);
@@ -312,33 +324,7 @@ namespace DocumentAutomationDemo
             }
 
             // Choose export format
-            Console.WriteLine("\nSelect export format:");
-            Console.WriteLine("1. Keep original format");
-            Console.WriteLine("2. Word (.docx)");
-            Console.WriteLine("3. HTML (.html)");
-            Console.WriteLine("4. PDF (.pdf)");
-            Console.Write("Choice (1-4): ");
-
-            ExportFormat format = ExportFormat.Original;
-            var formatChoice = Console.ReadLine();
-            switch (formatChoice)
-            {
-                case "1":
-                    format = ExportFormat.Original;
-                    break;
-                case "2":
-                    format = ExportFormat.Word;
-                    break;
-                case "3":
-                    format = ExportFormat.Html;
-                    break;
-                case "4":
-                    format = ExportFormat.Pdf;
-                    break;
-                default:
-                    format = ExportFormat.Original;
-                    break;
-            }
+            ExportFormat format = AskForExportFormat();
 
             try
             {
@@ -432,6 +418,28 @@ namespace DocumentAutomationDemo
 
             Console.WriteLine("Press any key to continue...");
             Console.ReadKey();
+        }
+
+        static ExportFormat AskForExportFormat()
+        {
+            Console.WriteLine("\nSelect export format:");
+            Console.WriteLine("1. Keep original format (.docx/.xlsx/.pptx)");
+            Console.WriteLine("2. Word (.docx)");
+            Console.WriteLine("3. HTML (.html) - with external images");
+            Console.WriteLine("4. HTML for Email (.html) - with embedded images");
+            Console.WriteLine("5. PDF (.pdf)");
+            Console.Write("Choice (1-5): ");
+
+            var formatChoice = Console.ReadLine();
+            return formatChoice switch
+            {
+                "1" => ExportFormat.Original,
+                "2" => ExportFormat.Word,
+                "3" => ExportFormat.Html,
+                "4" => ExportFormat.HtmlEmail,
+                "5" => ExportFormat.Pdf,
+                _ => ExportFormat.Original
+            };
         }
 
         static void SafeConsoleClear()

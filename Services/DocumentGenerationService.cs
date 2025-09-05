@@ -6,6 +6,7 @@ using DocumentFormat.OpenXml;
 using DocumentAutomationDemo.Models;
 using DocumentAutomationDemo.Services;
 using System.Text;
+using System.Diagnostics;
 using iTextSharp.text;
 using iTextSharp.text.pdf;
 using iTextSharp.text.html.simpleparser;
@@ -16,6 +17,7 @@ namespace DocumentAutomationDemo.Services
     {
         string GenerateDocument(DocumentGenerationRequest request);
         string ExportToHtml(string templatePath, Models.DocumentType documentType);
+        string ExportToEmailHtml(string templatePath, Models.DocumentType documentType);
         string ExportToPdf(string templatePath, Models.DocumentType documentType);
     }
 
@@ -23,16 +25,42 @@ namespace DocumentAutomationDemo.Services
     {
         private readonly ITemplateService _templateService;
         private readonly string _outputDirectory;
+        private readonly string _libreOfficePath;
 
         public DocumentGenerationService(ITemplateService templateService)
         {
             _templateService = templateService;
             _outputDirectory = Path.Combine(Directory.GetCurrentDirectory(), "Output");
             
+            // Try to find LibreOffice installation
+            _libreOfficePath = FindLibreOfficePath();
+            
             if (!Directory.Exists(_outputDirectory))
             {
                 Directory.CreateDirectory(_outputDirectory);
             }
+        }
+
+        private string FindLibreOfficePath()
+        {
+            // Common LibreOffice installation paths on Windows
+            string[] possiblePaths = {
+                @"C:\Program Files\LibreOffice\program\soffice.exe",
+                @"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
+                @"C:\Users\" + Environment.UserName + @"\AppData\Local\Programs\LibreOffice\program\soffice.exe"
+            };
+
+            foreach (string path in possiblePaths)
+            {
+                if (File.Exists(path))
+                {
+                    Console.WriteLine($"✅ Found LibreOffice at: {path}");
+                    return path;
+                }
+            }
+
+            Console.WriteLine("⚠️ LibreOffice not found. PDF and HTML export will use fallback methods.");
+            return string.Empty;
         }
 
         public string GenerateDocument(DocumentGenerationRequest request)
@@ -41,28 +69,171 @@ namespace DocumentAutomationDemo.Services
             if (template == null)
                 throw new ArgumentException($"Template with ID '{request.TemplateId}' not found");
 
-            // Create output filename with original extension
+            // Create output filename based on requested format
             string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-            string fileExtension = Path.GetExtension(template.FilePath);
-            string outputFileName = $"{template.Name}_{timestamp}{fileExtension}";
-            string outputPath = Path.Combine(_outputDirectory, outputFileName);
-
-            // Copy template to output location
-            File.Copy(template.FilePath, outputPath, true);
-
-            // Replace placeholders
-            ReplacePlaceholders(outputPath, request.PlaceholderValues, template.DocumentType);
-
-            // Export to requested format
+            string outputFileName;
+            string outputPath;
+            
+            // Determine output file extension based on export format
             switch (request.ExportFormat)
             {
                 case ExportFormat.Html:
-                    return ExportToHtml(outputPath, template.DocumentType);
+                    outputFileName = $"{template.Name}_{timestamp}.html";
+                    outputPath = Path.Combine(_outputDirectory, outputFileName);
+                    return ExportDirectToHtml(template, request.PlaceholderValues, outputPath);
+                    
+                case ExportFormat.HtmlEmail:
+                    outputFileName = $"{template.Name}_{timestamp}_email.html";
+                    outputPath = Path.Combine(_outputDirectory, outputFileName);
+                    return ExportDirectToEmailHtml(template, request.PlaceholderValues, outputPath);
+                    
                 case ExportFormat.Pdf:
-                    return ExportToPdf(outputPath, template.DocumentType);
-                default:
-                    return outputPath; // Return original format
+                    outputFileName = $"{template.Name}_{timestamp}.pdf";
+                    outputPath = Path.Combine(_outputDirectory, outputFileName);
+                    return ExportDirectToPdf(template, request.PlaceholderValues, outputPath);
+                    
+                case ExportFormat.Word:
+                    outputFileName = $"{template.Name}_{timestamp}.docx";
+                    break;
+                    
+                default: // Original format
+                    string fileExtension = Path.GetExtension(template.FilePath);
+                    outputFileName = $"{template.Name}_{timestamp}{fileExtension}";
+                    break;
             }
+            
+            // For Word/Original format, create the document file
+            outputPath = Path.Combine(_outputDirectory, outputFileName);
+            File.Copy(template.FilePath, outputPath, true);
+            ReplacePlaceholders(outputPath, request.PlaceholderValues, template.DocumentType);
+            
+            return outputPath;
+        }
+
+        private string ExportDirectToHtml(DocumentTemplate template, List<PlaceholderValue> placeholderValues, string outputPath)
+        {
+            // Create temporary document for processing
+            string tempDocPath = CreateTempDocument(template, placeholderValues);
+            
+            try
+            {
+                return ConvertToHtml(tempDocPath, outputPath, template.DocumentType);
+            }
+            finally
+            {
+                // Clean up temporary file
+                if (File.Exists(tempDocPath))
+                {
+                    File.Delete(tempDocPath);
+                }
+            }
+        }
+
+        private string ExportDirectToEmailHtml(DocumentTemplate template, List<PlaceholderValue> placeholderValues, string outputPath)
+        {
+            // Create temporary document for processing
+            string tempDocPath = CreateTempDocument(template, placeholderValues);
+            
+            try
+            {
+                if (!string.IsNullOrEmpty(_libreOfficePath))
+                {
+                    Console.WriteLine("🔄 Converting directly to email-friendly HTML using LibreOffice...");
+                    
+                    // Convert directly using LibreOffice
+                    string regularHtmlPath = ConvertUsingLibreOffice(tempDocPath, "html");
+                    return ConvertHtmlToEmailFriendly(regularHtmlPath, outputPath);
+                }
+                else
+                {
+                    // Fallback method
+                    return ConvertToEmailHtmlFallback(tempDocPath, outputPath, template.DocumentType);
+                }
+            }
+            finally
+            {
+                // Clean up temporary file
+                if (File.Exists(tempDocPath))
+                {
+                    File.Delete(tempDocPath);
+                }
+            }
+        }
+
+        private string ExportDirectToPdf(DocumentTemplate template, List<PlaceholderValue> placeholderValues, string outputPath)
+        {
+            // Create temporary document for processing
+            string tempDocPath = CreateTempDocument(template, placeholderValues);
+            
+            try
+            {
+                if (!string.IsNullOrEmpty(_libreOfficePath))
+                {
+                    Console.WriteLine("🔄 Converting directly to PDF using LibreOffice...");
+                    return ConvertUsingLibreOffice(tempDocPath, "pdf");
+                }
+                else
+                {
+                    // Fallback: HTML then PDF
+                    string htmlPath = ConvertToHtml(tempDocPath, Path.ChangeExtension(outputPath, ".html"), template.DocumentType);
+                    ConvertHtmlToPdfFallback(htmlPath, outputPath);
+                    return outputPath;
+                }
+            }
+            finally
+            {
+                // Clean up temporary file
+                if (File.Exists(tempDocPath))
+                {
+                    File.Delete(tempDocPath);
+                }
+            }
+        }
+
+        private string CreateTempDocument(DocumentTemplate template, List<PlaceholderValue> placeholderValues)
+        {
+            string tempPath = Path.Combine(Path.GetTempPath(), $"temp_{Guid.NewGuid()}{Path.GetExtension(template.FilePath)}");
+            File.Copy(template.FilePath, tempPath, true);
+            ReplacePlaceholders(tempPath, placeholderValues, template.DocumentType);
+            return tempPath;
+        }
+
+        private string ConvertToHtml(string inputPath, string outputPath, Models.DocumentType documentType)
+        {
+            if (!string.IsNullOrEmpty(_libreOfficePath))
+            {
+                try
+                {
+                    Console.WriteLine("🔄 Converting to HTML using LibreOffice headless...");
+                    return ConvertUsingLibreOffice(inputPath, "html");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"⚠️ LibreOffice conversion failed: {ex.Message}");
+                    Console.WriteLine("📄 Falling back to basic HTML conversion...");
+                }
+            }
+            
+            // Fallback to basic conversion
+            switch (documentType)
+            {
+                case Models.DocumentType.Word:
+                    ExportWordToHtmlFallback(inputPath, outputPath);
+                    break;
+                case Models.DocumentType.Excel:
+                    ExportExcelToHtmlFallback(inputPath, outputPath);
+                    break;
+                case Models.DocumentType.PowerPoint:
+                    ExportPowerPointToHtmlFallback(inputPath, outputPath);
+                    break;
+            }
+            return outputPath;
+        }
+
+        private string ConvertToEmailHtmlFallback(string inputPath, string outputPath, Models.DocumentType documentType)
+        {
+            string regularHtmlPath = ConvertToHtml(inputPath, Path.ChangeExtension(outputPath, ".temp.html"), documentType);
+            return ConvertHtmlToEmailFriendly(regularHtmlPath, outputPath);
         }
 
         private void ReplacePlaceholders(string filePath, List<PlaceholderValue> placeholderValues, Models.DocumentType documentType)
@@ -77,7 +248,7 @@ namespace DocumentAutomationDemo.Services
                             UpdateCustomPropertiesInDocument(doc, placeholderValues, documentType);
                             // NEW: Automatically refresh DOCPROPERTY field results after updating properties
                             RefreshWordDocPropertyFields(doc, placeholderValues);
-                            doc.MainDocumentPart.Document.Save();
+                            doc.MainDocumentPart?.Document?.Save();
                         }
                         break;
 
@@ -85,7 +256,7 @@ namespace DocumentAutomationDemo.Services
                         using (var doc = SpreadsheetDocument.Open(filePath, true))
                         {
                             UpdateCustomPropertiesInDocument(doc, placeholderValues, documentType);
-                            doc.WorkbookPart.Workbook.Save();
+                            doc.WorkbookPart?.Workbook?.Save();
                         }
                         break;
 
@@ -93,7 +264,7 @@ namespace DocumentAutomationDemo.Services
                         using (var doc = PresentationDocument.Open(filePath, true))
                         {
                             UpdateCustomPropertiesInDocument(doc, placeholderValues, documentType);
-                            doc.PresentationPart.Presentation.Save();
+                            doc.PresentationPart?.Presentation?.Save();
                         }
                         break;
                 }
@@ -507,18 +678,33 @@ namespace DocumentAutomationDemo.Services
         {
             string htmlPath = Path.ChangeExtension(templatePath, ".html");
             
+            if (!string.IsNullOrEmpty(_libreOfficePath))
+            {
+                try
+                {
+                    Console.WriteLine("🔄 Converting to HTML using LibreOffice headless...");
+                    return ConvertUsingLibreOffice(templatePath, "html");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"⚠️ LibreOffice conversion failed: {ex.Message}");
+                    Console.WriteLine("📄 Falling back to basic HTML conversion...");
+                }
+            }
+            
+            // Fallback to original HTML conversion method
             try
             {
                 switch (documentType)
                 {
                     case Models.DocumentType.Word:
-                        ExportWordToHtml(templatePath, htmlPath);
+                        ExportWordToHtmlFallback(templatePath, htmlPath);
                         break;
                     case Models.DocumentType.Excel:
-                        ExportExcelToHtml(templatePath, htmlPath);
+                        ExportExcelToHtmlFallback(templatePath, htmlPath);
                         break;
                     case Models.DocumentType.PowerPoint:
-                        ExportPowerPointToHtml(templatePath, htmlPath);
+                        ExportPowerPointToHtmlFallback(templatePath, htmlPath);
                         break;
                 }
             }
@@ -532,38 +718,379 @@ namespace DocumentAutomationDemo.Services
             return htmlPath;
         }
 
+        public string ExportToEmailHtml(string templatePath, Models.DocumentType documentType)
+        {
+            string emailHtmlPath = Path.ChangeExtension(templatePath, "_email.html");
+            
+            if (!string.IsNullOrEmpty(_libreOfficePath))
+            {
+                try
+                {
+                    Console.WriteLine("🔄 Converting to email-friendly HTML using LibreOffice...");
+                    
+                    // First convert using LibreOffice to get regular HTML with external images
+                    string regularHtmlPath = ConvertUsingLibreOffice(templatePath, "html");
+                    
+                    // Then convert external images to embedded base64 images
+                    return ConvertHtmlToEmailFriendly(regularHtmlPath, emailHtmlPath);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"⚠️ LibreOffice conversion failed: {ex.Message}");
+                    Console.WriteLine("📄 Falling back to basic HTML conversion...");
+                }
+            }
+            
+            // Fallback to original HTML conversion method
+            try
+            {
+                switch (documentType)
+                {
+                    case Models.DocumentType.Word:
+                        ExportWordToHtmlFallback(templatePath, emailHtmlPath);
+                        break;
+                    case Models.DocumentType.Excel:
+                        ExportExcelToHtmlFallback(templatePath, emailHtmlPath);
+                        break;
+                    case Models.DocumentType.PowerPoint:
+                        ExportPowerPointToHtmlFallback(templatePath, emailHtmlPath);
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Warning: Could not export to email HTML: {ex.Message}");
+                // Create a basic HTML file with error message
+                File.WriteAllText(emailHtmlPath, $"<html><body><h1>Export Error</h1><p>Could not convert {documentType} to email HTML: {ex.Message}</p></body></html>");
+            }
+
+            return emailHtmlPath;
+        }
+
         public string ExportToPdf(string templatePath, Models.DocumentType documentType)
         {
             string pdfPath = Path.ChangeExtension(templatePath, ".pdf");
             
-            // Convert to HTML first, then to PDF
-            string htmlPath = ExportToHtml(templatePath, documentType);
-            string htmlContent = File.ReadAllText(htmlPath);
-
-            using (var document = new iTextSharp.text.Document())
+            if (!string.IsNullOrEmpty(_libreOfficePath))
             {
-                using (var writer = PdfWriter.GetInstance(document, new FileStream(pdfPath, FileMode.Create)))
+                try
                 {
-                    document.Open();
-                    
-                    // Parse HTML and add to PDF
-                    using (var htmlReader = new StringReader(htmlContent))
-                    {
-                        var parsedElements = HTMLWorker.ParseToList(htmlReader, null);
-                        foreach (var element in parsedElements)
-                        {
-                            document.Add(element);
-                        }
-                    }
-                    
-                    document.Close();
+                    Console.WriteLine("🔄 Converting to PDF using LibreOffice headless...");
+                    return ConvertUsingLibreOffice(templatePath, "pdf");
                 }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"⚠️ LibreOffice conversion failed: {ex.Message}");
+                    Console.WriteLine("📄 Falling back to basic PDF conversion...");
+                }
+            }
+            
+            // Fallback to HTML-to-PDF conversion
+            try
+            {
+                string htmlPath = ExportToHtml(templatePath, documentType);
+                ConvertHtmlToPdfFallback(htmlPath, pdfPath);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Warning: Could not export to PDF: {ex.Message}");
+                // Create a basic error PDF
+                CreateErrorPdf(pdfPath, $"Could not convert {documentType} to PDF: {ex.Message}");
             }
 
             return pdfPath;
         }
 
-        private void ExportWordToHtml(string wordFilePath, string htmlPath)
+        private string ConvertUsingLibreOffice(string inputPath, string outputFormat)
+        {
+            string outputDir = Path.GetDirectoryName(inputPath) ?? _outputDirectory;
+            string outputPath = Path.ChangeExtension(inputPath, $".{outputFormat}");
+            
+            // Ensure clean output directory for LibreOffice
+            if (File.Exists(outputPath))
+            {
+                File.Delete(outputPath);
+            }
+
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = _libreOfficePath,
+                Arguments = $"--headless --convert-to {outputFormat} --outdir \"{outputDir}\" \"{inputPath}\"",
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+                WindowStyle = ProcessWindowStyle.Hidden
+            };
+
+            Console.WriteLine($"🔧 LibreOffice command: {startInfo.FileName} {startInfo.Arguments}");
+
+            using (var process = Process.Start(startInfo))
+            {
+                if (process == null)
+                {
+                    throw new InvalidOperationException("Failed to start LibreOffice process");
+                }
+
+                string output = process.StandardOutput.ReadToEnd();
+                string error = process.StandardError.ReadToEnd();
+                
+                // Wait for process to complete with timeout
+                if (!process.WaitForExit(30000)) // 30 second timeout
+                {
+                    process.Kill();
+                    throw new TimeoutException("LibreOffice conversion timed out after 30 seconds");
+                }
+
+                if (process.ExitCode != 0)
+                {
+                    throw new InvalidOperationException($"LibreOffice conversion failed with exit code {process.ExitCode}. Error: {error}");
+                }
+
+                Console.WriteLine($"📄 LibreOffice output: {output}");
+                if (!string.IsNullOrEmpty(error))
+                {
+                    Console.WriteLine($"⚠️ LibreOffice warnings: {error}");
+                }
+            }
+
+            // Verify output file was created
+            if (!File.Exists(outputPath))
+            {
+                throw new FileNotFoundException($"LibreOffice did not create expected output file: {outputPath}");
+            }
+
+            Console.WriteLine($"✅ Successfully converted to {outputFormat.ToUpper()}: {outputPath}");
+            return outputPath;
+        }
+
+        private string ConvertHtmlToEmailFriendly(string htmlPath, string emailHtmlPath)
+        {
+            try
+            {
+                Console.WriteLine("📧 Converting HTML to email-friendly format with embedded images...");
+                
+                string htmlContent = File.ReadAllText(htmlPath);
+                string htmlDirectory = Path.GetDirectoryName(htmlPath) ?? "";
+                
+                // Find all image references in the HTML
+                var imageMatches = System.Text.RegularExpressions.Regex.Matches(
+                    htmlContent, 
+                    @"<img[^>]+src=[""']([^""']+)[""'][^>]*>",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase
+                );
+
+                int embeddedCount = 0;
+                foreach (System.Text.RegularExpressions.Match match in imageMatches)
+                {
+                    string imageSrc = match.Groups[1].Value;
+                    string fullImagePath = Path.Combine(htmlDirectory, imageSrc);
+                    
+                    if (File.Exists(fullImagePath))
+                    {
+                        try
+                        {
+                            // Read image file and convert to base64
+                            byte[] imageBytes = File.ReadAllBytes(fullImagePath);
+                            string mimeType = GetImageMimeType(Path.GetExtension(fullImagePath));
+                            string base64String = Convert.ToBase64String(imageBytes);
+                            string dataUri = $"data:{mimeType};base64,{base64String}";
+                            
+                            // Replace the src attribute with the data URI
+                            htmlContent = htmlContent.Replace($"src=\"{imageSrc}\"", $"src=\"{dataUri}\"");
+                            htmlContent = htmlContent.Replace($"src='{imageSrc}'", $"src=\"{dataUri}\"");
+                            
+                            embeddedCount++;
+                            Console.WriteLine($"   ✓ Embedded image: {imageSrc} ({FormatFileSize(imageBytes.Length)})");
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"   ⚠️ Could not embed image {imageSrc}: {ex.Message}");
+                        }
+                    }
+                    else
+                    {
+                        Console.WriteLine($"   ⚠️ Image file not found: {fullImagePath}");
+                    }
+                }
+                
+                // Add email-specific CSS optimizations
+                htmlContent = OptimizeHtmlForEmail(htmlContent);
+                
+                // Write the email-friendly HTML
+                File.WriteAllText(emailHtmlPath, htmlContent, System.Text.Encoding.UTF8);
+                
+                Console.WriteLine($"✅ Email-friendly HTML created with {embeddedCount} embedded images");
+                Console.WriteLine($"📧 Email HTML file: {emailHtmlPath}");
+                
+                return emailHtmlPath;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"❌ Error converting HTML to email-friendly format: {ex.Message}");
+                // Create a fallback email-friendly HTML
+                CreateFallbackEmailHtml(htmlPath, emailHtmlPath);
+                return emailHtmlPath;
+            }
+        }
+
+        private string GetImageMimeType(string extension)
+        {
+            return extension.ToLowerInvariant() switch
+            {
+                ".png" => "image/png",
+                ".jpg" or ".jpeg" => "image/jpeg",
+                ".gif" => "image/gif",
+                ".bmp" => "image/bmp",
+                ".webp" => "image/webp",
+                ".svg" => "image/svg+xml",
+                _ => "image/png" // Default to PNG
+            };
+        }
+
+        private string FormatFileSize(long bytes)
+        {
+            string[] suffixes = { "B", "KB", "MB", "GB" };
+            int counter = 0;
+            double number = bytes;
+            while (Math.Round(number / 1024) >= 1)
+            {
+                number /= 1024;
+                counter++;
+            }
+            return $"{number:n1} {suffixes[counter]}";
+        }
+
+        private string OptimizeHtmlForEmail(string htmlContent)
+        {
+            // Add email-specific optimizations
+            var optimizedHtml = new StringBuilder();
+            
+            // Add email-friendly CSS and meta tags
+            optimizedHtml.AppendLine("<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional//EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">");
+            optimizedHtml.AppendLine("<html xmlns=\"http://www.w3.org/1999/xhtml\">");
+            optimizedHtml.AppendLine("<head>");
+            optimizedHtml.AppendLine("<meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\" />");
+            optimizedHtml.AppendLine("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\"/>");
+            optimizedHtml.AppendLine("<title>Document Export</title>");
+            optimizedHtml.AppendLine("<style type=\"text/css\">");
+            optimizedHtml.AppendLine("/* Email-specific CSS */");
+            optimizedHtml.AppendLine("body { margin: 0; padding: 20px; font-family: Arial, sans-serif; background-color: #ffffff; }");
+            optimizedHtml.AppendLine("table { border-collapse: collapse; width: 100%; max-width: 600px; margin: 0 auto; }");
+            optimizedHtml.AppendLine("img { max-width: 100%; height: auto; display: block; margin: 10px auto; }");
+            optimizedHtml.AppendLine("p { margin: 10px 0; line-height: 1.6; }");
+            optimizedHtml.AppendLine("h1, h2, h3, h4, h5, h6 { margin: 15px 0 10px 0; }");
+            optimizedHtml.AppendLine("</style>");
+            optimizedHtml.AppendLine("</head>");
+            
+            // Extract body content from original HTML
+            var bodyMatch = System.Text.RegularExpressions.Regex.Match(
+                htmlContent, 
+                @"<body[^>]*>(.*?)</body>", 
+                System.Text.RegularExpressions.RegexOptions.Singleline | System.Text.RegularExpressions.RegexOptions.IgnoreCase
+            );
+            
+            if (bodyMatch.Success)
+            {
+                optimizedHtml.AppendLine("<body>");
+                optimizedHtml.AppendLine(bodyMatch.Groups[1].Value);
+                optimizedHtml.AppendLine("</body>");
+            }
+            else
+            {
+                // If no body found, wrap the entire content
+                optimizedHtml.AppendLine("<body>");
+                optimizedHtml.AppendLine(htmlContent);
+                optimizedHtml.AppendLine("</body>");
+            }
+            
+            optimizedHtml.AppendLine("</html>");
+            
+            return optimizedHtml.ToString();
+        }
+
+        private void CreateFallbackEmailHtml(string originalHtmlPath, string emailHtmlPath)
+        {
+            try
+            {
+                string content = File.Exists(originalHtmlPath) ? File.ReadAllText(originalHtmlPath) : "<p>Document content could not be loaded.</p>";
+                var fallbackHtml = $@"<!DOCTYPE html>
+<html>
+<head>
+    <meta charset='utf-8'>
+    <title>Document Export</title>
+    <style>
+        body {{ font-family: Arial, sans-serif; margin: 20px; max-width: 600px; }}
+        img {{ max-width: 100%; height: auto; }}
+    </style>
+</head>
+<body>
+    <h1>Document Export</h1>
+    <p><em>Note: This is a fallback email-friendly version. Some images may not display correctly.</em></p>
+    {content}
+</body>
+</html>";
+                File.WriteAllText(emailHtmlPath, fallbackHtml);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Could not create fallback email HTML: {ex.Message}");
+            }
+        }
+
+        private void ConvertHtmlToPdfFallback(string htmlPath, string pdfPath)
+        {
+            try
+            {
+                string htmlContent = File.ReadAllText(htmlPath);
+
+                using (var document = new iTextSharp.text.Document())
+                {
+                    using (var writer = PdfWriter.GetInstance(document, new FileStream(pdfPath, FileMode.Create)))
+                    {
+                        document.Open();
+                        
+                        // Parse HTML and add to PDF using basic HTML parsing
+                        using (var htmlReader = new StringReader(htmlContent))
+                        {
+                            // Use more basic HTML parsing since HTMLWorker is obsolete
+                            var paragraph = new iTextSharp.text.Paragraph(htmlContent);
+                            document.Add(paragraph);
+                        }
+                        
+                        document.Close();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error in HTML to PDF conversion: {ex.Message}");
+                CreateErrorPdf(pdfPath, ex.Message);
+            }
+        }
+
+        private void CreateErrorPdf(string pdfPath, string errorMessage)
+        {
+            try
+            {
+                using (var document = new iTextSharp.text.Document())
+                {
+                    using (var writer = PdfWriter.GetInstance(document, new FileStream(pdfPath, FileMode.Create)))
+                    {
+                        document.Open();
+                        document.Add(new iTextSharp.text.Paragraph("PDF Conversion Error"));
+                        document.Add(new iTextSharp.text.Paragraph(errorMessage));
+                        document.Close();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Could not create error PDF: {ex.Message}");
+            }
+        }
+
+        private void ExportWordToHtmlFallback(string wordFilePath, string htmlPath)
         {
             using (var doc = WordprocessingDocument.Open(wordFilePath, false))
             {
@@ -599,7 +1126,7 @@ namespace DocumentAutomationDemo.Services
             }
         }
 
-        private void ExportExcelToHtml(string excelFilePath, string htmlPath)
+        private void ExportExcelToHtmlFallback(string excelFilePath, string htmlPath)
         {
             using (var doc = SpreadsheetDocument.Open(excelFilePath, false))
             {
@@ -637,7 +1164,7 @@ namespace DocumentAutomationDemo.Services
             }
         }
 
-        private void ExportPowerPointToHtml(string pptFilePath, string htmlPath)
+        private void ExportPowerPointToHtmlFallback(string pptFilePath, string htmlPath)
         {
             using (var doc = PresentationDocument.Open(pptFilePath, false))
             {

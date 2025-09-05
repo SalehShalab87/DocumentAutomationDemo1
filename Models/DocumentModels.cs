@@ -29,7 +29,8 @@ namespace DocumentAutomationDemo.Models
     {
         Original,  // Keep original format (Word/Excel/PowerPoint)
         Word,      // Convert to Word format
-        Html,
+        Html,      // HTML with external images
+        HtmlEmail, // HTML with embedded base64 images (email-friendly)
         Pdf
     }
 
