@@ -26,7 +26,7 @@ namespace DocumentAutomationDemo.Services
         private readonly ITemplateService _templateService;
         private readonly string _outputDirectory;
         private readonly string _libreOfficePath;
-
+        
         public DocumentGenerationService(ITemplateService templateService)
         {
             _templateService = templateService;
@@ -122,10 +122,7 @@ namespace DocumentAutomationDemo.Services
             finally
             {
                 // Clean up temporary file
-                if (File.Exists(tempDocPath))
-                {
-                    File.Delete(tempDocPath);
-                }
+                CleanupTempFile(tempDocPath, "HTML conversion");
             }
         }
 
@@ -142,7 +139,12 @@ namespace DocumentAutomationDemo.Services
                     
                     // Convert directly using LibreOffice
                     string regularHtmlPath = ConvertUsingLibreOffice(tempDocPath, "html");
-                    return ConvertHtmlToEmailFriendly(regularHtmlPath, outputPath);
+                    string result = ConvertHtmlToEmailFriendly(regularHtmlPath, outputPath);
+                    
+                    // Clean up the intermediate HTML file
+                    CleanupTempFile(regularHtmlPath, "intermediate HTML conversion");
+                    
+                    return result;
                 }
                 else
                 {
@@ -153,10 +155,7 @@ namespace DocumentAutomationDemo.Services
             finally
             {
                 // Clean up temporary file
-                if (File.Exists(tempDocPath))
-                {
-                    File.Delete(tempDocPath);
-                }
+                CleanupTempFile(tempDocPath, "email HTML conversion");
             }
         }
 
@@ -177,25 +176,48 @@ namespace DocumentAutomationDemo.Services
                     // Fallback: HTML then PDF
                     string htmlPath = ConvertToHtml(tempDocPath, Path.ChangeExtension(outputPath, ".html"), template.DocumentType);
                     ConvertHtmlToPdfFallback(htmlPath, outputPath);
+                    
+                    // Clean up intermediate HTML file
+                    CleanupTempFile(htmlPath, "PDF conversion");
+                    
                     return outputPath;
                 }
             }
             finally
             {
                 // Clean up temporary file
-                if (File.Exists(tempDocPath))
-                {
-                    File.Delete(tempDocPath);
-                }
+                CleanupTempFile(tempDocPath, "PDF conversion");
             }
         }
 
         private string CreateTempDocument(DocumentTemplate template, List<PlaceholderValue> placeholderValues)
         {
-            string tempPath = Path.Combine(Path.GetTempPath(), $"temp_{Guid.NewGuid()}{Path.GetExtension(template.FilePath)}");
+            // Create temp file in Output directory for better organization and debugging
+            string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+            string tempFileName = $"temp_{template.Name}_{timestamp}{Path.GetExtension(template.FilePath)}";
+            string tempPath = Path.Combine(_outputDirectory, tempFileName);
+            
+            Console.WriteLine($"📝 Creating temporary document: {tempFileName}");
+            
             File.Copy(template.FilePath, tempPath, true);
             ReplacePlaceholders(tempPath, placeholderValues, template.DocumentType);
             return tempPath;
+        }
+
+        private void CleanupTempFile(string filePath, string operationName)
+        {
+            try
+            {
+                if (File.Exists(filePath))
+                {
+                    File.Delete(filePath);
+                    Console.WriteLine($"🧹 Cleaned up temporary file after {operationName}: {Path.GetFileName(filePath)}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"⚠️ Could not clean up temporary file {Path.GetFileName(filePath)}: {ex.Message}");
+            }
         }
 
         private string ConvertToHtml(string inputPath, string outputPath, Models.DocumentType documentType)
@@ -803,10 +825,12 @@ namespace DocumentAutomationDemo.Services
 
         private string ConvertUsingLibreOffice(string inputPath, string outputFormat)
         {
-            string outputDir = Path.GetDirectoryName(inputPath) ?? _outputDirectory;
-            string outputPath = Path.ChangeExtension(inputPath, $".{outputFormat}");
+            // Always use the Output directory for LibreOffice conversions
+            string outputDir = _outputDirectory;
+            string inputFileName = Path.GetFileNameWithoutExtension(inputPath);
+            string outputPath = Path.Combine(outputDir, $"{inputFileName}.{outputFormat}");
             
-            // Ensure clean output directory for LibreOffice
+            // Ensure clean output for LibreOffice
             if (File.Exists(outputPath))
             {
                 File.Delete(outputPath);
