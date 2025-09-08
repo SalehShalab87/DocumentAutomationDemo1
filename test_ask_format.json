@@ -1,5 +1,5 @@
 {
-    "templateId": "41918f35-20d6-41fe-a180-3d0a62bba16e",
+    "templateId": "4436c20e-8bbe-41a6-bba6-dfa67eab08b7",
     "values": {
         "ICS_CustomerName": "Ask User - No Format Specified",
         "ICS_QuotationNumber": "Q-ASK-001", 
@@ -12,15 +12,8 @@
         "ICS_Benefit2_Name": "Dental",
         "ICS_Benefit2_Coverage": "Partial", 
         "ICS_Benefit2_Limit": "$4,000",
-        "ICS_Benefit3_Name": "Vision",
-        "ICS_Benefit3_Coverage": "Basic",
-        "ICS_Benefit3_Limit": "$1,500",
-        "ICS_Benefit4_Name": "Wellness",
-        "ICS_Benefit4_Coverage": "Full",
-        "ICS_Benefit4_Limit": "$2,000",
         "ICS_Term1": "System will ask for export format",
         "ICS_Term2": "Interactive console experience",
-        "ICS_Term3": "User choice driven workflow",
-        "ICS_Term4": "Flexible export options"
+        "ICS_Term3": "User choice driven workflow"
     }
 }

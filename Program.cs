@@ -10,6 +10,7 @@ namespace DocumentAutomationDemo
     {
         private static ITemplateService _templateService = null!;
         private static IDocumentGenerationService _documentService = null!;
+        private static IDocumentEmbeddingService _embeddingService = null!;
 
         static void Main(string[] args)
         {
@@ -19,6 +20,7 @@ namespace DocumentAutomationDemo
             // Initialize services
             _templateService = new TemplateService();
             _documentService = new DocumentGenerationService(_templateService);
+            _embeddingService = new DocumentEmbeddingService(_templateService);
 
             try
             {
@@ -43,9 +45,10 @@ namespace DocumentAutomationDemo
                 Console.WriteLine("1. Register a new template");
                 Console.WriteLine("2. View all templates");
                 Console.WriteLine("3. Generate document from template");
-                Console.WriteLine("4. Delete a template");
-                Console.WriteLine("5. Exit");
-                Console.Write("\nSelect an option (1-5): ");
+                Console.WriteLine("4. Generate document with embedded templates");
+                Console.WriteLine("5. Delete a template");
+                Console.WriteLine("6. Exit");
+                Console.Write("\nSelect an option (1-6): ");
 
                 var choice = Console.ReadLine();
 
@@ -61,9 +64,12 @@ namespace DocumentAutomationDemo
                         GenerateDocument();
                         break;
                     case "4":
-                        DeleteTemplate();
+                        GenerateDocumentWithEmbedding();
                         break;
                     case "5":
+                        DeleteTemplate();
+                        break;
+                    case "6":
                         return;
                     default:
                         Console.WriteLine("Invalid option. Press any key to continue...");
@@ -418,6 +424,236 @@ namespace DocumentAutomationDemo
 
             Console.WriteLine("Press any key to continue...");
             Console.ReadKey();
+        }
+
+        static void GenerateDocumentWithEmbedding()
+        {
+            SafeConsoleClear();
+            Console.WriteLine("=== Generate Document with Embedded Templates ===\n");
+
+            var templates = _templateService.GetAllTemplates();
+            if (templates.Count == 0)
+            {
+                Console.WriteLine("❌ No templates available. Please register templates first.");
+                Console.ReadKey();
+                return;
+            }
+
+            // Filter to only Word documents
+            var wordTemplates = templates.Where(t => t.DocumentType == DocumentType.Word).ToList();
+            if (wordTemplates.Count == 0)
+            {
+                Console.WriteLine("❌ No Word document templates available. Document embedding only supports Word documents.");
+                Console.ReadKey();
+                return;
+            }
+
+            Console.WriteLine("📋 Available Word templates:");
+            for (int i = 0; i < wordTemplates.Count; i++)
+            {
+                Console.WriteLine($"{i + 1}. {wordTemplates[i].Name} (ID: {wordTemplates[i].Id})");
+                Console.WriteLine($"   Placeholders: {string.Join(", ", wordTemplates[i].Placeholders)}");
+            }
+
+            // Step 1: Choose main template
+            Console.Write("\nSelect main template number: ");
+            if (!int.TryParse(Console.ReadLine(), out int mainTemplateIndex) || 
+                mainTemplateIndex < 1 || mainTemplateIndex > wordTemplates.Count)
+            {
+                Console.WriteLine("❌ Invalid template selection.");
+                Console.ReadKey();
+                return;
+            }
+
+            var mainTemplate = wordTemplates[mainTemplateIndex - 1];
+
+            // Step 2: Get main template values (JSON or manual)
+            var mainTemplateValues = GetTemplateValues(mainTemplate, "main template");
+            if (mainTemplateValues == null) return;
+
+            // Step 3: Configure embeddings (supports multiple embeddings)
+            var embeddings = new List<EmbedInfo>();
+            
+            while (true)
+            {
+                Console.WriteLine($"\n📍 Current embeddings: {embeddings.Count}");
+                Console.WriteLine("1. Add embedding");
+                Console.WriteLine("2. Finish and generate document");
+                Console.Write("Choice: ");
+                
+                var choice = Console.ReadLine();
+                
+                if (choice == "1")
+                {
+                    var embedding = ConfigureEmbedding(wordTemplates);
+                    if (embedding != null)
+                    {
+                        embeddings.Add(embedding);
+                        Console.WriteLine($"✅ Added embedding: {embedding.EmbedPlaceholder}");
+                    }
+                }
+                else if (choice == "2")
+                {
+                    if (embeddings.Count == 0)
+                    {
+                        Console.WriteLine("❌ No embeddings configured. Please add at least one embedding.");
+                        continue;
+                    }
+                    break;
+                }
+                else
+                {
+                    Console.WriteLine("Invalid choice. Please select 1 or 2.");
+                }
+            }
+
+            // Step 4: Choose export format
+            ExportFormat format = AskForExportFormat();
+
+            // Step 5: Generate document with embeddings
+            try
+            {
+                var request = new DocumentEmbeddingRequest
+                {
+                    MainTemplateId = mainTemplate.Id,
+                    MainTemplateValues = mainTemplateValues,
+                    Embeddings = embeddings,
+                    ExportFormat = format
+                };
+
+                string outputPath = _embeddingService.GenerateDocumentWithEmbedding(request);
+                Console.WriteLine($"\n✅ Document with {embeddings.Count} embedding(s) generated successfully!");
+                Console.WriteLine($"Output file: {outputPath}");
+
+                // Generate example JSON for future use
+                var jsonExample = new DocumentEmbeddingValues
+                {
+                    MainTemplateId = mainTemplate.Id,
+                    MainValues = mainTemplateValues.ToDictionary(pv => pv.Placeholder, pv => pv.Value),
+                    Embeddings = embeddings.Select(e => new EmbedValues
+                    {
+                        EmbedTemplateId = e.EmbedTemplateId,
+                        Values = e.EmbedTemplateValues.ToDictionary(pv => pv.Placeholder, pv => pv.Value),
+                        EmbedPlaceholder = e.EmbedPlaceholder
+                    }).ToList(),
+                    ExportFormat = format
+                };
+
+                string jsonPath = Path.Combine(
+                    Path.GetDirectoryName(outputPath) ?? "",
+                    Path.GetFileNameWithoutExtension(outputPath) + "_embedding_values.json"
+                );
+
+                File.WriteAllText(
+                    jsonPath,
+                    System.Text.Json.JsonSerializer.Serialize(jsonExample, new System.Text.Json.JsonSerializerOptions { WriteIndented = true })
+                );
+
+                Console.WriteLine($"JSON template saved to: {jsonPath}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"❌ Error generating document with embedding: {ex.Message}");
+            }
+
+            Console.WriteLine("\nPress any key to continue...");
+            Console.ReadKey();
+        }
+
+        static EmbedInfo? ConfigureEmbedding(List<DocumentTemplate> wordTemplates)
+        {
+            Console.WriteLine("\n📄 Configure Embedding:");
+            
+            // Choose embed template
+            Console.WriteLine("Available templates to embed:");
+            for (int i = 0; i < wordTemplates.Count; i++)
+            {
+                Console.WriteLine($"{i + 1}. {wordTemplates[i].Name} (ID: {wordTemplates[i].Id})");
+                Console.WriteLine($"   Placeholders: {string.Join(", ", wordTemplates[i].Placeholders)}");
+            }
+
+            Console.Write("Select template to embed number: ");
+            if (!int.TryParse(Console.ReadLine(), out int embedTemplateIndex) || 
+                embedTemplateIndex < 1 || embedTemplateIndex > wordTemplates.Count)
+            {
+                Console.WriteLine("❌ Invalid template selection.");
+                return null;
+            }
+
+            var embedTemplate = wordTemplates[embedTemplateIndex - 1];
+
+            // Get placeholder for embedding location
+            Console.Write($"Enter placeholder in main template where to embed '{embedTemplate.Name}': ");
+            string embedPlaceholder = Console.ReadLine() ?? "";
+            if (string.IsNullOrWhiteSpace(embedPlaceholder))
+            {
+                Console.WriteLine("❌ Embed placeholder cannot be empty.");
+                return null;
+            }
+
+            // Get embed template values
+            var embedTemplateValues = GetTemplateValues(embedTemplate, $"embed template '{embedTemplate.Name}'");
+            if (embedTemplateValues == null) return null;
+
+            return new EmbedInfo
+            {
+                EmbedTemplateId = embedTemplate.Id,
+                EmbedTemplateValues = embedTemplateValues,
+                EmbedPlaceholder = embedPlaceholder
+            };
+        }
+
+        static List<PlaceholderValue>? GetTemplateValues(DocumentTemplate template, string templateDescription)
+        {
+            Console.WriteLine($"\n📄 Getting values for {templateDescription} '{template.Name}'");
+            Console.Write("Enter path to values JSON file (or press Enter for manual input): ");
+            string jsonPath = Console.ReadLine() ?? "";
+
+            if (!string.IsNullOrWhiteSpace(jsonPath))
+            {
+                if (!File.Exists(jsonPath))
+                {
+                    Console.WriteLine("❌ JSON file not found.");
+                    return null;
+                }
+
+                try
+                {
+                    string jsonContent = File.ReadAllText(jsonPath);
+                    var documentValues = System.Text.Json.JsonSerializer.Deserialize<DocumentValues>(jsonContent);
+                    
+                    if (documentValues?.Values != null)
+                    {
+                        return documentValues.Values.Select(kv => new PlaceholderValue 
+                        { 
+                            Placeholder = kv.Key, 
+                            Value = kv.Value 
+                        }).ToList();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"❌ Error reading JSON: {ex.Message}");
+                    return null;
+                }
+            }
+
+            // Manual input
+            var placeholderValues = new List<PlaceholderValue>();
+            Console.WriteLine($"Enter values for placeholders in '{template.Name}':");
+
+            foreach (var placeholder in template.Placeholders)
+            {
+                Console.Write($"{placeholder}: ");
+                string value = Console.ReadLine() ?? "";
+                placeholderValues.Add(new PlaceholderValue 
+                { 
+                    Placeholder = placeholder, 
+                    Value = value 
+                });
+            }
+
+            return placeholderValues;
         }
 
         static ExportFormat AskForExportFormat()

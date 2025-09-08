@@ -40,4 +40,34 @@ namespace DocumentAutomationDemo.Models
         Excel,     // .xlsx  
         PowerPoint // .pptx
     }
+
+    public class DocumentEmbeddingRequest
+    {
+        public string MainTemplateId { get; set; } = string.Empty;
+        public List<PlaceholderValue> MainTemplateValues { get; set; } = new();
+        public List<EmbedInfo> Embeddings { get; set; } = new();
+        public ExportFormat ExportFormat { get; set; } = ExportFormat.Original;
+    }
+
+    public class EmbedInfo
+    {
+        public string EmbedTemplateId { get; set; } = string.Empty;
+        public List<PlaceholderValue> EmbedTemplateValues { get; set; } = new();
+        public string EmbedPlaceholder { get; set; } = string.Empty;
+    }
+
+    public class DocumentEmbeddingValues
+    {
+        public string MainTemplateId { get; set; } = string.Empty;
+        public Dictionary<string, string> MainValues { get; set; } = new();
+        public List<EmbedValues> Embeddings { get; set; } = new();
+        public ExportFormat ExportFormat { get; set; } = ExportFormat.Original;
+    }
+
+    public class EmbedValues
+    {
+        public string EmbedTemplateId { get; set; } = string.Empty;
+        public Dictionary<string, string> Values { get; set; } = new();
+        public string EmbedPlaceholder { get; set; } = string.Empty;
+    }
 }

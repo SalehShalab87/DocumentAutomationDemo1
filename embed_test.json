@@ -1,0 +1,13 @@
+{
+  "templateId": "3b24b531-397d-4b0d-a6f0-72924ecf827b",
+  "values": {
+    "ICS_Benefit3_Name": "Vision",
+    "ICS_Benefit3_Coverage": "Basic",
+    "ICS_Benefit3_Limit": "$1,500",
+    "ICS_Benefit4_Name": "Wellness",
+    "ICS_Benefit4_Coverage": "Full",
+    "ICS_Benefit4_Limit": "$2,000",
+    "ICS_Term4": "Flexible export options",
+    "ICS_Term5": "Quote valid for 365 days"
+  }
+}
