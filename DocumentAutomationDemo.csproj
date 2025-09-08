@@ -8,10 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="DocumentFormat.OpenXml" Version="3.0.2" />
-    <PackageReference Include="iTextSharp" Version="5.5.13.3" />
-    <PackageReference Include="HtmlAgilityPack" Version="1.11.57" />
-    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <ProjectReference Include="..\DocumentAutomation.Library\DocumentAutomation.Library.csproj" />
   </ItemGroup>
 
 </Project>

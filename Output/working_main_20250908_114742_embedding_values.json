@@ -1,0 +1,36 @@
+{
+  "MainTemplateId": "4436c20e-8bbe-41a6-bba6-dfa67eab08b7",
+  "MainValues": {
+    "ICS_CustomerName": "Ask User - No Format Specified",
+    "ICS_QuotationNumber": "Q-ASK-001",
+    "ICS_PolicyNumber": "P-ASK-789",
+    "ICS_PolicyStartDate": "2025-09-05",
+    "ICS_PolicyEndDate": "2026-09-04",
+    "ICS_Benefit1_Name": "Health",
+    "ICS_Benefit1_Coverage": "Full",
+    "ICS_Benefit1_Limit": "$30,000",
+    "ICS_Benefit2_Name": "Dental",
+    "ICS_Benefit2_Coverage": "Partial",
+    "ICS_Benefit2_Limit": "$4,000",
+    "ICS_Term1": "System will ask for export format",
+    "ICS_Term2": "Interactive console experience",
+    "ICS_Term3": "User choice driven workflow"
+  },
+  "Embeddings": [
+    {
+      "EmbedTemplateId": "3b24b531-397d-4b0d-a6f0-72924ecf827b",
+      "Values": {
+        "ICS_Benefit3_Name": "Vision",
+        "ICS_Benefit3_Coverage": "Basic",
+        "ICS_Benefit3_Limit": "$1,500",
+        "ICS_Benefit4_Name": "Wellness",
+        "ICS_Benefit4_Coverage": "Full",
+        "ICS_Benefit4_Limit": "$2,000",
+        "ICS_Term4": "Flexible export options",
+        "ICS_Term5": "Quote valid for 365 days"
+      },
+      "EmbedPlaceholder": "\u003C\u003CICS_Include_Doc2\u003E\u003E"
+    }
+  ],
+  "ExportFormat": 4
+}

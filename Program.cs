@@ -1,5 +1,5 @@
-using DocumentAutomationDemo.Models;
-using DocumentAutomationDemo.Services;
+using DocumentAutomation.Library.Models;
+using DocumentAutomation.Library.Services;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Spreadsheet;
 using DocumentFormat.OpenXml.Presentation;
